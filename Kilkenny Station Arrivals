@@ -1,0 +1,118 @@
+#!/usr/bin/env python3
+"""
+Kilkenny Station Arrivals
+Displays real-time train arrival information for Kilkenny station using Irish Rail API
+"""
+
+import requests
+import xml.etree.ElementTree as ET
+from datetime import datetime
+from typing import List, Dict
+
+class KilkennyStationTracker:
+    def __init__(self):
+        self.base_url = "http://api.irishrail.ie/realtime/realtime.asmx"
+        self.station_code = "KKNNY"  # Kilkenny station code
+        
+    def get_station_arrivals(self) -> List[Dict]:
+        """Fetch current train arrivals at Kilkenny station"""
+        try:
+            # Get station data by name to ensure we have the right station
+            url = f"{self.base_url}/getStationDataByNameXML"
+            params = {
+                'StationDesc': 'Kilkenny',
+                'NumMins': '240'  # Next 240 minutes (4 hours)
+            }
+            
+            response = requests.get(url, params=params, timeout=10)
+            response.raise_for_status()
+            
+            # Parse XML response with namespace
+            root = ET.fromstring(response.content)
+            
+            # Define namespace for Irish Rail API
+            ns = {'ir': 'http://api.irishrail.ie/realtime/'}
+            
+            arrivals = []
+            for train in root.findall('ir:objStationData', ns):
+                train_info = {
+                    'train_code': train.findtext('ir:Traincode', 'N/A', ns),
+                    'origin': train.findtext('ir:Origin', 'N/A', ns),
+                    'destination': train.findtext('ir:Destination', 'N/A', ns),
+                    'scheduled_arrival': train.findtext('ir:Scharrival', 'N/A', ns),
+                    'expected_arrival': train.findtext('ir:Exparrival', 'N/A', ns),
+                    'scheduled_departure': train.findtext('ir:Schdepart', 'N/A', ns),
+                    'expected_departure': train.findtext('ir:Expdepart', 'N/A', ns),
+                    'status': train.findtext('ir:Status', 'N/A', ns),
+                    'train_type': train.findtext('ir:Traintype', 'N/A', ns),
+                    'direction': train.findtext('ir:Direction', 'N/A', ns),
+                    'late_mins': train.findtext('ir:Late', '0', ns),
+                    'due_in': train.findtext('ir:Duein', 'N/A', ns),
+                    'last_location': train.findtext('ir:Lastlocation', 'N/A', ns)
+                }
+                arrivals.append(train_info)
+            
+            return arrivals
+            
+        except requests.RequestException as e:
+            print(f"Error fetching data: {e}")
+            return []
+        except ET.ParseError as e:
+            print(f"Error parsing XML: {e}")
+            return []
+    
+    def display_arrivals(self):
+        """Display formatted arrival information"""
+        print("\n" + "="*80)
+        print(f"{'KILKENNY STATION - TRAIN ARRIVALS':^80}")
+        print(f"{'Updated: ' + datetime.now().strftime('%Y-%m-%d %H:%M:%S'):^80}")
+        print("="*80 + "\n")
+        
+        arrivals = self.get_station_arrivals()
+        
+        if not arrivals:
+            print("No arrivals found or unable to fetch data.")
+            print("\nNote: This uses the Irish Rail API. Ensure you have internet connectivity.")
+            return
+        
+        # Sort by due in time (minutes until arrival)
+        arrivals.sort(key=lambda x: int(x['due_in']) if x['due_in'] != 'N/A' and x['due_in'].lstrip('-').isdigit() else 9999)
+        
+        for idx, train in enumerate(arrivals, 1):
+            print(f"Train #{idx}")
+            print(f"  Train Code:    {train['train_code'].strip()}")
+            print(f"  From:          {train['origin']}")
+            print(f"  To:            {train['destination']}")
+            print(f"  Type:          {train['train_type']}")
+            print(f"  Direction:     {train['direction']}")
+            
+            # Show due in time prominently
+            due_in = train['due_in']
+            if due_in != 'N/A':
+                print(f"  Due In:        {due_in} minutes")
+            
+            print(f"  Arrival:       {train['expected_arrival']} (scheduled: {train['scheduled_arrival']})")
+            print(f"  Departure:     {train['expected_departure']} (scheduled: {train['scheduled_departure']})")
+            
+            # Show delay information
+            try:
+                late_mins = int(train['late_mins'])
+                if late_mins > 0:
+                    print(f"  Status:        {train['status']} - ⚠️  DELAYED {late_mins} min(s)")
+                else:
+                    print(f"  Status:        {train['status']} - ✓ On time")
+            except (ValueError, TypeError):
+                print(f"  Status:        {train['status']}")
+            
+            print(f"  Last Location: {train['last_location']}")
+            print("-" * 80)
+        
+        print(f"\nTotal trains: {len(arrivals)}")
+        print()
+
+def main():
+    tracker = KilkennyStationTracker()
+    tracker.display_arrivals()
+
+if __name__ == "__main__":
+    main()
