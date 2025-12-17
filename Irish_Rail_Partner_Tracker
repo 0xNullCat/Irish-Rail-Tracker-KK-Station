@@ -1,0 +1,345 @@
+#!/usr/bin/env python3
+"""
+🚂 Partner Train Tracker 💕
+Love means knowing exactly when they arrive
+(and if they're stuck at Portlaoise again)
+"""
+
+import random
+import xml.etree.ElementTree as ET
+from datetime import datetime, timedelta
+
+import requests
+
+
+class PartnerTrainTracker:
+    def __init__(self):
+        self.base_url = "http://api.irishrail.ie/realtime/realtime.asmx"
+        self.partner_usual_arrival = "19:08"
+        self.drive_time_minutes = 25  # Your drive time to station
+        self.buffer_minutes = 5  # Buffer for parking/walking
+        self.station_emojis = {
+            'dublin': '🏰',
+            'heuston': '🚉',
+            'kilkenny': '🏠',
+            'kildare': '🐴',
+            'athy': '🌾',
+            'carlow': '🌲',
+            'bagenalstown': '🌻',
+            'muine bheag': '🌻',
+        }
+        
+    def get_partner_train(self):
+        """Find your partner's usual train"""
+        try:
+            url = f"{self.base_url}/getStationDataByNameXML"
+            params = {'StationDesc': 'Kilkenny', 'NumMins': '300'}
+            
+            response = requests.get(url, params=params, timeout=10)
+            response.raise_for_status()
+            
+            root = ET.fromstring(response.content)
+            ns = {'ir': 'http://api.irishrail.ie/realtime/'}
+            
+            # Find trains from Dublin Heuston
+            partner_trains = []
+            for train in root.findall('ir:objStationData', ns):
+                origin = train.findtext('ir:Origin', '', ns)
+                scheduled_arrival = train.findtext('ir:Scharrival', '', ns)
+                
+                # Look for Dublin Heuston trains around the usual time
+                if 'heuston' in origin.lower():
+                    train_code = train.findtext('ir:Traincode', 'N/A', ns)
+                    destination = train.findtext('ir:Destination', 'N/A', ns)
+                    exp_arrival = train.findtext('ir:Exparrival', 'N/A', ns)
+                    sch_departure = train.findtext('ir:Schdepart', 'N/A', ns)
+                    exp_departure = train.findtext('ir:Expdepart', 'N/A', ns)
+                    status = train.findtext('ir:Status', 'N/A', ns)
+                    late = int(train.findtext('ir:Late', '0', ns))
+                    due_in = train.findtext('ir:Duein', 'N/A', ns)
+                    last_loc = train.findtext('ir:Lastlocation', 'N/A', ns)
+                    origin_time = train.findtext('ir:Origintime', 'N/A', ns)
+                    
+                    partner_trains.append({
+                        'train_code': train_code.strip(),
+                        'origin': origin,
+                        'destination': destination,
+                        'scheduled_arrival': scheduled_arrival,
+                        'expected_arrival': exp_arrival,
+                        'scheduled_departure': sch_departure,
+                        'expected_departure': exp_departure,
+                        'status': status,
+                        'late_mins': late,
+                        'due_in': due_in,
+                        'last_location': last_loc,
+                        'origin_time': origin_time
+                    })
+            
+            return partner_trains
+            
+        except Exception as e:
+            print(f"💥 Uh oh! API problems: {e}")
+            return []
+    
+    def get_location_emoji(self, location):
+        """Get a fun emoji for the location"""
+        location_lower = location.lower()
+        for key, emoji in self.station_emojis.items():
+            if key in location_lower:
+                return emoji
+        return '📍'
+    
+    def get_delay_message(self, late_mins, due_in):
+        """Generate fun delay commentary"""
+        if late_mins == 0:
+            messages = [
+                "✨ ON TIME! Irish Rail is showing off today!",
+                "🎯 Perfectly on time. Someone's getting a smooch!",
+                "⏰ Bang on schedule. The stars have aligned!",
+                "🌟 On time like a Swiss watch (but Irish)!",
+                "💚 ON TIME! Frame this moment, it's historic!",
+            ]
+        elif late_mins <= 3:
+            messages = [
+                (f"😅 Only {late_mins} min late. "
+                 "That's basically on time in Irish Rail years."),
+                (f"🤷 {late_mins} min delay. "
+                 "Time to blame the leaves/sun/wrong kind of rain."),
+                (f"⏱️ {late_mins} min behind. "
+                 f"You've got an extra {late_mins} mins to scroll TikTok!"),
+                (f"🐌 {late_mins} min late. "
+                 "The train stopped to admire the countryside."),
+            ]
+        elif late_mins <= 10:
+            messages = [
+                (f"😬 {late_mins} min delay. "
+                 "Still time to tidy that passenger seat!"),
+                (f"⚠️ {late_mins} minutes late. "
+                 "Maybe grab those flowers from SuperValu quick?"),
+                (f"🚨 {late_mins} min behind schedule. "
+                 "The train took a scenic route."),
+                (f"⏰ {late_mins} min delay. "
+                 "Even the train wants more time away from work!"),
+            ]
+        else:
+            messages = [
+                (f"🆘 {late_mins} MINUTES LATE! "
+                 "Probably stuck behind a cow at Cherryville again."),
+                (f"💀 {late_mins} min delay. "
+                 "Time to consider takeaway instead of cooking!"),
+                (f"🚑 {late_mins} MINUTES BEHIND! "
+                 "The train driver stopped for a full Irish."),
+                (f"📢 {late_mins} min late! "
+                 "Better text: 'Babe, train's doing its thing again...'"),
+            ]
+        
+        return random.choice(messages)
+    
+    def get_status_emoji(self, status):
+        """Emoji for train status"""
+        status_lower = status.lower()
+        if 'route' in status_lower:
+            return '🚄'
+        elif 'arrived' in status_lower:
+            return '🎉'
+        elif 'depart' in status_lower:
+            return '🚀'
+        else:
+            return '🚂'
+    
+    def display_partner_train_status(self):
+        """Show the train status with maximum personality"""
+        print("\n" + "="*80)
+        print("🚂💕 PARTNER TRAIN TRACKER 💕🚂".center(80))
+        print(f"{'Tracking the sacred 19:08 Heuston → Kilkenny':^80}")
+        print(f"{'Updated: ' + datetime.now().strftime('%H:%M:%S'):^80}")
+        print("="*80 + "\n")
+        
+        trains = self.get_partner_train()
+        
+        if not trains:
+            print("🤔 Hmm... no trains found. Either:")
+            print("   • They're already home (yay!)")
+            print("   • The train hasn't left yet")
+            print("   • Irish Rail's API is having a moment")
+            print("\n💡 Pro tip: The 19:08 usually shows up about")
+            print("   an hour before departure!")
+            return
+        
+        # Find the most likely train (closest to 19:08 arrival)
+        target_train = None
+        for train in trains:
+            scheduled = train['scheduled_arrival']
+            if '19:08' in scheduled or '19:15' in scheduled:
+                target_train = train
+                break
+        
+        if not target_train and trains:
+            target_train = trains[0]  # Just show the first one
+        
+        if target_train:
+            print("🎯 FOUND YOUR HUMAN'S TRAIN!")
+            print("─" * 80)
+            print(f"\n🚂 Train Code: {target_train['train_code']}")
+            origin = target_train['origin']
+            origin_time = target_train['origin_time']
+            print(f"🏰 Started from: {origin} at {origin_time}")
+            print("🏠 Getting off at: Kilkenny")
+            print(f"🚂 Train continues to: {target_train['destination']}")
+            
+            # Current location
+            location = target_train['last_location']
+            loc_emoji = self.get_location_emoji(location)
+            print(f"\n{loc_emoji} CURRENT LOCATION: {location}")
+            
+            # Status
+            status_emoji = self.get_status_emoji(target_train['status'])
+            print(f"{status_emoji} Status: {target_train['status']}")
+            
+            # Timing
+            due_in = target_train['due_in']
+            if due_in != 'N/A' and due_in.lstrip('-').isdigit():
+                due_mins = int(due_in)
+                if due_mins > 0:
+                    print(f"\n⏰ ARRIVING IN: {due_mins} minutes")
+                    hours = due_mins // 60
+                    mins = due_mins % 60
+                    if hours > 0:
+                        print(f"   (That's {hours}h {mins}m "
+                              "if you're counting)")
+                    
+                    # Fun countdown messages
+                    if due_mins <= 10:
+                        print("   🏃 TIME TO PUT THE KETTLE ON!")
+                    elif due_mins <= 30:
+                        print("   🧹 Maybe do a quick tidy? "
+                              "Or not, they love you anyway!")
+                    elif due_mins <= 60:
+                        print("   📺 Still time for another episode...")
+                else:
+                    passing = abs(due_mins)
+                    print(f"\n🎊 THEY'RE HERE! "
+                          f"(or passing through in {passing} mins)")
+            
+            scheduled = target_train['scheduled_arrival']
+            expected = target_train['expected_arrival']
+            print(f"\n📅 Scheduled Arrival: {scheduled}")
+            print(f"🎯 Expected Arrival:  {expected}")
+            
+            # The important bit - delays!
+            late_mins = target_train['late_mins']
+            delay_msg = self.get_delay_message(late_mins, due_in)
+            print(f"\n{delay_msg}")
+            
+            # Calculate when to leave for pickup
+            expected_time = target_train['expected_arrival']
+            if expected_time != 'N/A':
+                try:
+                    # Parse the expected arrival time (format: HH:MM)
+                    now = datetime.now()
+                    hour, minute = map(int, expected_time.split(':'))
+                    arrival_datetime = now.replace(
+                        hour=hour, minute=minute, second=0, microsecond=0
+                    )
+                    
+                    # If arrival time is before now, must be tomorrow
+                    if arrival_datetime < now:
+                        arrival_datetime += timedelta(days=1)
+                    
+                    # Calculate when to leave
+                    total_time = (self.drive_time_minutes +
+                                  self.buffer_minutes)
+                    leave_datetime = arrival_datetime - timedelta(
+                        minutes=total_time
+                    )
+                    
+                    # How many minutes until we need to leave
+                    leave_in = int(
+                        (leave_datetime - now).total_seconds() / 60
+                    )
+                    
+                    # Calculate when we'd actually arrive at station
+                    arrive_at_station = leave_datetime + timedelta(
+                        minutes=self.drive_time_minutes
+                    )
+                    
+                    print(f"\n{'='*80}")
+                    print("🚗 PICKUP MISSION CONTROL 🚗".center(80))
+                    print("─" * 80)
+                    print(f"Current time: {now.strftime('%H:%M')}")
+                    print(f"Train arrives: {expected_time}")
+                    print(f"Drive time: {self.drive_time_minutes} min")
+                    print(f"Buffer (parking/walking): "
+                          f"{self.buffer_minutes} min")
+                    station_arrival = arrive_at_station.strftime('%H:%M')
+                    print(f"You'll arrive at station: {station_arrival}")
+                    
+                    if leave_in <= 0:
+                        msg = "🚨 LEAVE NOW! LEAVE NOW! LEAVE NOW! 🚨"
+                        print(f"\n{msg}".center(80))
+                        mins_ago = abs(leave_in)
+                        msg2 = f"You should have left {mins_ago} mins ago!"
+                        print(msg2.center(80))
+                        if abs(leave_in) <= 5:
+                            print("(You'll still make it, GO GO GO!)"
+                                  .center(80))
+                        else:
+                            print("(Blame traffic when you get there 😅)"
+                                  .center(80))
+                    elif leave_in <= 5:
+                        msg = "⚡ GRAB YOUR KEYS AND GO RIGHT NOW! ⚡"
+                        print(f"\n{msg}".center(80))
+                        print(f"Leave in: {leave_in} minutes".center(80))
+                        print("(Shoes on, phone grabbed, keys in hand!)"
+                              .center(80))
+                    elif leave_in <= 10:
+                        msg = f"⏰ Leave in {leave_in} minutes"
+                        print(f"\n{msg}".center(80))
+                        print("Time to start wrapping things up!"
+                              .center(80))
+                    elif leave_in <= 20:
+                        msg = f"🧘 Leave in {leave_in} minutes"
+                        print(f"\n{msg}".center(80))
+                        msg2 = "Relax, you've got time. Finish that tea."
+                        print(msg2.center(80))
+                    else:
+                        msg = f"😌 Leave in {leave_in} minutes"
+                        print(f"\n{msg}".center(80))
+                        print("Plenty of time! They're still ages away."
+                              .center(80))
+                    
+                    leave_time = leave_datetime.strftime('%H:%M')
+                    msg = f"🕐 Suggested departure time: {leave_time}"
+                    print(f"\n{msg}".center(80))
+                    print("="*80)
+                    
+                except (ValueError, AttributeError) as e:
+                    print(f"\n⚠️  Could not calculate pickup time: {e}")
+            
+            # Other trains
+            if len(trains) > 1:
+                print("\n\n📋 OTHER DUBLIN → KILKENNY TRAINS TODAY:")
+                print("─" * 80)
+                for train in trains:
+                    if train != target_train:
+                        icon = "✅" if train['late_mins'] == 0 else "⚠️"
+                        code = train['train_code']
+                        sch = train['scheduled_arrival']
+                        exp = train['expected_arrival']
+                        late = train['late_mins']
+                        print(f"{icon} {code}: {sch} → {exp} "
+                              f"({late} min)")
+            
+            print("\n" + "─" * 80)
+            print("💕 See you soon! 💕".center(80))
+            print("─" * 80 + "\n")
+
+
+def main():
+    """Main entry point for the partner train tracker."""
+    tracker = PartnerTrainTracker()
+    tracker.display_partner_train_status()
+
+
+if __name__ == "__main__":
+    main()
